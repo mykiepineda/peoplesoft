@@ -1,0 +1,60 @@
+Constant &CHUNK_SIZE = 500;
+
+Local Message &MSG;
+Local Rowset &MSG_ROWSET, &PERSON_ROWSET;
+Local Record &MSG_RECORD, &PERSON_RECORD;
+Local integer &I;
+Local boolean &NEW;
+
+Function StartNewMessage() Returns boolean
+   
+   &MSG = CreateMessage(Message.UOA_INT_PERSON);
+   &MSG_ROWSET = &MSG.GetPartRowset(1);
+   
+   Return True;
+   
+End-Function;
+
+Function PopulateMessage(&ROW_NUM As integer)
+   
+   &MSG_ROWSET(&ROW_NUM).UOA_INT_PERSDT.EMPLID.Value = &PERSON_RECORD.EMPLID.Value;
+   &MSG_ROWSET(&ROW_NUM).UOA_INT_PERSDT.EMPL_REFERRAL_ID.Value = &PERSON_RECORD.EMPL_REFERRAL_ID.Value;
+   &MSG_ROWSET(&ROW_NUM).UOA_INT_PERSDT.NAME_PREFIX.Value = &PERSON_RECORD.NAME_PREFIX.Value;
+   &MSG_ROWSET(&ROW_NUM).UOA_INT_PERSDT.FIRST_NAME.Value = &PERSON_RECORD.FIRST_NAME.Value;
+   &MSG_ROWSET(&ROW_NUM).UOA_INT_PERSDT.MIDDLE_NAME.Value = &PERSON_RECORD.MIDDLE_NAME.Value;
+   &MSG_ROWSET(&ROW_NUM).UOA_INT_PERSDT.LAST_NAME.Value = &PERSON_RECORD.LAST_NAME.Value;
+   &MSG_ROWSET(&ROW_NUM).UOA_INT_PERSDT.NAME_SUFFIX.Value = &PERSON_RECORD.NAME_SUFFIX.Value;
+   &MSG_ROWSET(&ROW_NUM).UOA_INT_PERSDT.SEX.Value = &PERSON_RECORD.SEX.Value;
+   &MSG_ROWSET(&ROW_NUM).UOA_INT_PERSDT.EMAIL_ADDR.Value = &PERSON_RECORD.EMAIL_ADDR.Value;
+   &MSG_ROWSET(&ROW_NUM).UOA_INT_PERSDT.LASTUPDDTTM.Value = %Datetime;
+   
+End-Function;
+
+/********************************************* MAIN PROCEDURE *********************************************/
+
+&PERSON_ROWSET = CreateRowset(Record.UOA_EPR_FS_TAO);
+&PERSON_ROWSET.Fill("WHERE EMPL_REFERRAL_ID <> ' '");
+
+&NEW = StartNewMessage();
+
+For &I = 1 To &PERSON_ROWSET.ActiveRowCount
+   
+   &PERSON_RECORD = &PERSON_ROWSET(&I).GetRecord(Record.UOA_EPR_FS_TAO);
+   
+   If &MSG_ROWSET.ActiveRowCount = &CHUNK_SIZE Then
+      %IntBroker.Publish(&MSG);
+      &NEW = StartNewMessage();
+      PopulateMessage(1);
+   End-If;
+   
+   If Not (&NEW) Then
+      &MSG_ROWSET.InsertRow(&MSG_ROWSET.ActiveRowCount);
+   End-If;
+   
+   PopulateMessage(&MSG_ROWSET.ActiveRowCount);
+   
+   &NEW = False;
+   
+End-For;
+
+%IntBroker.Publish(&MSG);
