@@ -15,8 +15,8 @@ Function GenerateAuthorisationToken
    
    &MSG_RQST_TOKEN.URIResourceIndex = 1;
    
-   &CLIENT_ID = "client_id=" | EncodeURL("4kkuirp***av8b5io2ih"); /* TODO: Retrieve value from table instead */
-   &CLIENT_SECRET = "client_secret=" | EncodeURL("1qgs6i2ab3e***i6q3teclc"); /* TODO: Retrieve value from table instead */
+   &CLIENT_ID = "client_id=" | EncodeURL("4kk***2ih"); /* TODO: Retrieve value from table instead */
+   &CLIENT_SECRET = "client_secret=" | EncodeURL("1qg***clc"); /* TODO: Retrieve value from table instead */
    &GRANT_TYPE = "grant_type=" | "client_credentials";
    &DATA = &CLIENT_ID | &DELIMITER | &CLIENT_SECRET | &DELIMITER | &GRANT_TYPE;
    
