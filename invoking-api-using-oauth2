@@ -1,0 +1,83 @@
+Local boolean &RET;
+
+Constant &DELIMITER = "&";
+
+Function GenerateAuthorisationToken
+   
+   Local Message &MSG_RQST_TOKEN, &MSG_RESP_TOKEN;
+   Local string &DATA, &CLIENT_ID, &CLIENT_SECRET, &GRANT_TYPE, &ACCESS_TOKEN, &EXPIRES_IN_SECONDS, &TOKEN_TYPE;
+   Local Document &DOC_RESP;
+   Local Compound &COM_RESP;
+   
+   /* Request */
+   
+   &MSG_RQST_TOKEN = CreateMessage(Operation.UOA_COGNITO_AUTH_TOKEN_POST);
+   
+   &MSG_RQST_TOKEN.URIResourceIndex = 1;
+   
+   &CLIENT_ID = "client_id=" | EncodeURL("4kkuirp***av8b5io2ih"); /* TODO: Retrieve value from table instead */
+   &CLIENT_SECRET = "client_secret=" | EncodeURL("1qgs6i2ab3e***i6q3teclc"); /* TODO: Retrieve value from table instead */
+   &GRANT_TYPE = "grant_type=" | "client_credentials";
+   &DATA = &CLIENT_ID | &DELIMITER | &CLIENT_SECRET | &DELIMITER | &GRANT_TYPE;
+   
+   &RET = &MSG_RQST_TOKEN.SetContentString(&DATA);
+   
+   &MSG_RQST_TOKEN.SegmentContentType = "application/x-www-form-urlencoded";
+   
+   &MSG_RESP_TOKEN = %IntBroker.SyncRequest(&MSG_RQST_TOKEN);
+   
+   /* Response */
+   
+   If &MSG_RESP_TOKEN.ResponseStatus = %IB_Status_Success Then
+      &DOC_RESP = &MSG_RESP_TOKEN.GetDocument();
+      &COM_RESP = &DOC_RESP.DocumentElement;
+      &ACCESS_TOKEN = &COM_RESP.GetPropertyByName("access_token").value;
+      &EXPIRES_IN_SECONDS = &COM_RESP.GetPropertyByName("expires_in").value;
+      &TOKEN_TYPE = &COM_RESP.GetPropertyByName("token_type").value;
+      SQLExec("DELETE FROM PS_UOA_AUTH_TOKEN");
+      SQLExec("INSERT INTO PS_UOA_AUTH_TOKEN (AUTHTOKENFILE, ENDINGSECOND, UOA_TOKEN_TYPE, CREATEDTTM, UOA_EXPIRES_IN) VALUES (%TextIn(:1), :2, :3, %CurrentDateTimeIn, %CurrentDateTimeIn + INTERVAL '" | &EXPIRES_IN_SECONDS | "' SECOND)", &ACCESS_TOKEN, &EXPIRES_IN_SECONDS, &TOKEN_TYPE);
+      CommitWork();
+   Else
+      throw CreateException(0, 0, &MSG_RESP_TOKEN.GetContentString());
+   End-If;
+   
+End-Function;
+
+Function GetAuthorisationHeader Returns string
+   
+   Local string &AUTHORISATION_HEADER;
+   
+   SQLExec("SELECT UOA_TOKEN_TYPE || ' ' || AUTHTOKENFILE FROM PS_UOA_AUTH_TOKEN WHERE UOA_EXPIRES_IN > %CurrentDateTimeIn", &AUTHORISATION_HEADER);
+   
+   If None(&AUTHORISATION_HEADER) Then
+      /* Token has expired. Generate new authorisation token */
+      GenerateAuthorisationToken();
+      /* Recursive call */
+      &AUTHORISATION_HEADER = GetAuthorisationHeader();
+   End-If;
+   
+   Return &AUTHORISATION_HEADER;
+   
+End-Function;
+
+/******************* MAIN - CALL API *******************/
+
+Local Message &MSG_RQST_API, &MSG_RESP_API;
+
+/* Request */
+
+&MSG_RQST_API = CreateMessage(Operation.UOA_OSC_SR_STUD_TOPICS_GET);
+
+&MSG_RQST_API.URIResourceIndex = 1;
+
+&RET = &MSG_RQST_API.IBInfo.IBConnectorInfo.AddConnectorProperties("Authorization", GetAuthorisationHeader(), %Header);
+
+&MSG_RESP_API = %IntBroker.SyncRequest(&MSG_RQST_API);
+
+/* Response */
+
+If &MSG_RESP_API.ResponseStatus = %IB_Status_Success Then
+   WinMessage(&MSG_RESP_API.GetContentString(), 0);
+Else
+   throw CreateException(0, 0, &MSG_RESP_API.GetContentString());
+End-If;
