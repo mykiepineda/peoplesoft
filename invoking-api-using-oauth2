@@ -2,7 +2,7 @@ Local boolean &RET;
 
 Constant &DELIMITER = "&";
 
-Function GenerateAuthorisationToken
+Function GenerateAuthorisationToken(&CONSUMER_NAME as String, &CLIENT_ID as String, &CLIENT_SECRET as String)
    
    Local Message &MSG_RQST_TOKEN, &MSG_RESP_TOKEN;
    Local string &DATA, &CLIENT_ID, &CLIENT_SECRET, &GRANT_TYPE, &ACCESS_TOKEN, &EXPIRES_IN_SECONDS, &TOKEN_TYPE;
@@ -34,20 +34,40 @@ Function GenerateAuthorisationToken
       &ACCESS_TOKEN = &COM_RESP.GetPropertyByName("access_token").value;
       &EXPIRES_IN_SECONDS = &COM_RESP.GetPropertyByName("expires_in").value;
       &TOKEN_TYPE = &COM_RESP.GetPropertyByName("token_type").value;
-      SQLExec("DELETE FROM PS_UOA_AUTH_TOKEN");
-      SQLExec("INSERT INTO PS_UOA_AUTH_TOKEN (AUTHTOKENFILE, ENDINGSECOND, UOA_TOKEN_TYPE, CREATEDTTM, UOA_EXPIRES_IN) VALUES (%TextIn(:1), :2, :3, %CurrentDateTimeIn, %CurrentDateTimeIn + INTERVAL '" | &EXPIRES_IN_SECONDS | "' SECOND)", &ACCESS_TOKEN, &EXPIRES_IN_SECONDS, &TOKEN_TYPE);
-      CommitWork();
+
+      try
+         &oAuthToken.expiresInSeconds = Value(&EXPIRES_IN_SECONDS);
+      catch Exception &ex
+         &oAuthToken.expiresInSeconds = 0;
+      end-try;
+      &oAuthToken.setExpiryDate();
+      &oAuthToken.accessToken = &ACCESS_TOKEN;
+      &oAuthToken.tokenType = &TOKEN_TYPE;
    Else
       throw CreateException(0, 0, &MSG_RESP_TOKEN.GetContentString());
    End-If;
    
 End-Function;
 
-Function GetAuthorisationHeader Returns string
+Function GetAuthorisationHeader(&p_sConsumerName as String) Returns string
    
-   Local string &AUTHORISATION_HEADER;
+   Local string &CLIENT_ID, &CLIENT_SECRET, &AUTHORISATION_HEADER;
    
-   SQLExec("SELECT UOA_TOKEN_TYPE || ' ' || AUTHTOKENFILE FROM PS_UOA_AUTH_TOKEN WHERE UOA_EXPIRES_IN > %CurrentDateTimeIn", &AUTHORISATION_HEADER);
+   If None(&p_sConsumerName) Then
+      throw CreateException(30000, 422, "Consumer Name is required for generating an OAuth 2.0 Token");
+   End-If;
+   
+   SQLExec("SELECT UOA_CLIENT_ID, UOA_CLIENT_SECRET FROM PS_UOA_API_KEY_TBL WHERE UOA_API_CONSUMER = :1", &p_sConsumerName, &CLIENT_ID, &CLIENT_SECRET);
+   
+   If Not All(&CLIENT_ID, &CLIENT_SECRET) Then
+      throw CreateException(30000, 423, "No OAuth 2.0 Client Credentials in Key Store for consumer", &p_sConsumerName);
+   End-If;
+   
+   If &oAuthToken.isExpired() Then
+      /* Need to generate a new one */
+   Else
+      &AUTHORISATION_HEADER = &oAuthToken.getAuthorizationHeader();
+   End-If;
    
    If None(&AUTHORISATION_HEADER) Then
       /* Token has expired. Generate new authorisation token */
